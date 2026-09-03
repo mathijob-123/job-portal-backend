@@ -252,7 +252,8 @@ const DEFAULT_SETTINGS = {
 };
 
 // 1. Public GET: Read settings for frontend integration
-router.get('/public', async (req, res) => {
+router.get(['/public', '/get'], async (req, res) => {
+
     try {
         const [settings] = await db.execute('SELECT * FROM system_settings');
         const result = { ...DEFAULT_SETTINGS };

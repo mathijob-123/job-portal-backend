@@ -8,7 +8,7 @@ const { verifyToken } = require('../middleware/authMiddleware');
 // Helper: Generate Candidate ID
 async function generateCandidateId() {
     const [rows] = await db.execute('SELECT COUNT(*) as count FROM candidates');
-    const count = rows[0].count;
+    const count = parseInt(rows[0]?.count || 0);
     const num = count + 10001;
     return `CAND-${num}`;
 }
@@ -31,7 +31,7 @@ router.post('/send-otp', async (req, res) => {
 
     try {
         await db.execute(
-            'INSERT INTO otps (mobileNumber, otpCode, expiresAt) VALUES (?, ?, ?)',
+            'INSERT INTO otps (mobile_number, otp_code, expires_at) VALUES (?, ?, ?)',
             [fullMobile, otpCode, expiresAt]
         );
 
@@ -63,15 +63,20 @@ router.post('/verify-otp', async (req, res) => {
 
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM otps WHERE mobileNumber = ? AND otpCode = ? AND verified = 0 ORDER BY id DESC LIMIT 1',
+            'SELECT * FROM otps WHERE mobile_number = ? AND otp_code = ? AND verified = 0 ORDER BY id DESC LIMIT 1',
             [fullMobile, otp]
         );
         const otpRecord = rows[0];
 
-        if (!otpRecord) return res.status(400).json({ message: 'Invalid or expired OTP' });
+        if (!otpRecord) {
+            return res.status(400).json({ message: 'Invalid OTP code. Please try again.' });
+        }
+
+        if (new Date(otpRecord.expires_at) < new Date()) {
+            return res.status(400).json({ message: 'OTP has expired. Please request a new one.' });
+        }
 
         await db.execute('UPDATE otps SET verified = 1 WHERE id = ?', [otpRecord.id]);
-
         await checkCandidateAccount(fullMobile, res);
     } catch (err) {
         console.error(err);
@@ -81,12 +86,12 @@ router.post('/verify-otp', async (req, res) => {
 
 async function checkCandidateAccount(mobileNumber, res) {
     try {
-        const [rows] = await db.execute('SELECT * FROM candidates WHERE mobileNumber = ? LIMIT 1', [mobileNumber]);
+        const [rows] = await db.execute('SELECT * FROM candidates WHERE mobile_number = ? LIMIT 1', [mobileNumber]);
         const candidate = rows[0];
 
         if (candidate) {
             const token = jwt.sign(
-                { id: candidate.candidateId, role: 'jobseeker', email: candidate.email },
+                { id: candidate.candidate_id || candidate.candidateId, role: 'jobseeker', email: candidate.email },
                 process.env.JWT_SECRET || 'secret_key',
                 { expiresIn: '7d' }
             );
@@ -121,7 +126,7 @@ router.post('/google', async (req, res) => {
 
         if (candidate) {
             const token = jwt.sign(
-                { id: candidate.candidateId, role: 'jobseeker', email: candidate.email },
+                { id: candidate.candidate_id || candidate.candidateId, role: 'jobseeker', email: candidate.email },
                 process.env.JWT_SECRET || 'secret_key',
                 { expiresIn: '7d' }
             );
@@ -152,7 +157,7 @@ router.post('/profile', async (req, res) => {
     if (!mobile) return res.status(400).json({ message: 'Mobile number is required' });
 
     try {
-        let queryStr = 'SELECT * FROM candidates WHERE mobileNumber = ?';
+        let queryStr = 'SELECT * FROM candidates WHERE mobile_number = ?';
         let queryParams = [mobile];
         if (body.email) {
             queryStr += ' OR email = ?';
@@ -167,31 +172,31 @@ router.post('/profile', async (req, res) => {
         let finalId;
 
         if (existing) {
-            finalId = existing.candidateId;
+            finalId = existing.candidate_id || existing.candidateId;
             const updateQuery = `
                 UPDATE candidates SET
-                    fullName=?, profilePhoto=?, dateOfBirth=?, gender=?, city=?, state=?, country=?, pincode=?, address=?,
-                    professionalHeadline=?, currentJobTitle=?, currentCompany=?, totalExperience=?, experienceType=?, aboutMe=?,
-                    resumeUrl=?, resumeName=?, resumeUpdatedAt=?, profileCompleted=?, profileCompletionPercentage=?
-                WHERE candidateId=?
+                    full_name=?, profile_photo=?, date_of_birth=?, gender=?, city=?, state=?, country=?, pincode=?, address=?,
+                    professional_headline=?, current_job_title=?, current_company=?, total_experience=?, experience_type=?, about_me=?,
+                    resume_url=?, resume_name=?, resume_updated_at=?, profile_completed=?, profile_completion_percentage=?, updated_at=NOW()
+                WHERE candidate_id=?
             `;
             const updateParams = [
-                body.full_name || body.name || existing.fullName,
-                body.profile_photo || body.photo || existing.profilePhoto,
-                body.date_of_birth || body.dob || existing.dateOfBirth,
+                body.full_name || body.name || existing.full_name,
+                body.profile_photo || body.photo || existing.profile_photo,
+                body.date_of_birth || body.dob || existing.date_of_birth,
                 body.gender || existing.gender,
                 body.city || existing.city,
                 body.state || existing.state,
                 body.country || existing.country,
                 body.pincode || existing.pincode,
                 body.address || existing.address,
-                body.professional_headline || existing.professionalHeadline,
-                body.current_job_title || existing.currentJobTitle,
-                body.current_company || existing.currentCompany,
-                body.total_experience || existing.totalExperience,
+                body.professional_headline || existing.professional_headline,
+                body.current_job_title || existing.current_job_title,
+                body.current_company || existing.current_company,
+                body.total_experience || existing.total_experience,
                 body.experience_type || 'Experienced',
-                body.about_me || existing.aboutMe,
-                body.resume_url || body.resumeURL || existing.resumeUrl,
+                body.about_me || existing.about_me,
+                body.resume_url || body.resumeURL || existing.resume_url,
                 body.resume_name || 'Resume.pdf',
                 new Date().toISOString(),
                 1,
@@ -205,16 +210,16 @@ router.post('/profile', async (req, res) => {
 
             const insertQuery = `
                 INSERT INTO candidates (
-                    candidateId, mobileNumber, mobileVerified, email, passwordHash, googleAccountId, fullName,
-                    profilePhoto, dateOfBirth, gender, city, state, country, pincode, address, professionalHeadline,
-                    currentJobTitle, currentCompany, totalExperience, experienceType, aboutMe, resumeUrl, resumeName,
-                    resumeUpdatedAt, profileCompleted, profileCompletionPercentage
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    candidate_id, mobile_number, mobile_verified, email, password_hash, google_account_id, full_name,
+                    profile_photo, date_of_birth, gender, city, state, country, pincode, address, professional_headline,
+                    current_job_title, current_company, total_experience, experience_type, about_me, resume_url, resume_name,
+                    resume_updated_at, profile_completed, profile_completion_percentage, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
             `;
             const insertParams = [
                 finalId, mobile, 1, body.email || '', body.password || '', body.google_account_id || '',
                 body.full_name || body.name || 'Candidate', body.profile_photo || body.photo || '',
-                body.date_of_birth || '', body.gender || 'Any', body.city || '', body.state || '',
+                body.date_of_birth || body.dob || '', body.gender || 'Any', body.city || '', body.state || '',
                 body.country || 'India', body.pincode || '', body.address || '', body.professional_headline || '',
                 body.current_job_title || '', body.current_company || '', body.total_experience || 'Fresher',
                 body.experience_type || 'Fresher', body.about_me || '', body.resume_url || '', body.resume_name || '',
@@ -226,8 +231,8 @@ router.post('/profile', async (req, res) => {
                 const [userRows] = await db.execute('SELECT * FROM users WHERE email = ? LIMIT 1', [body.email]);
                 if (userRows.length === 0) {
                     await db.execute(
-                        'INSERT INTO users (email, password, role, phone, address) VALUES (?, ?, ?, ?, ?)',
-                        [body.email, body.password || 'password', 'jobseeker', mobile, body.address || '']
+                        'INSERT INTO users (email, password, role, phone, address, hrName) VALUES (?, ?, ?, ?, ?, ?)',
+                        [body.email, body.password || 'password', 'jobseeker', mobile, body.address || '', body.full_name || body.name || '']
                     );
                 }
             }
@@ -269,10 +274,10 @@ function calculateCompletionScore(body) {
 async function saveSubTables(candidateId, body) {
     // Education
     if (Array.isArray(body.education)) {
-        await db.execute('DELETE FROM candidate_educations WHERE candidateId = ?', [candidateId]);
+        await db.execute('DELETE FROM candidate_education WHERE candidate_id = ?', [candidateId]);
         for (const edu of body.education) {
             await db.execute(
-                `INSERT INTO candidate_educations (candidateId, qualification, degree, specialization, institution, university, startYear, endYear, percentage, cgpa)
+                `INSERT INTO candidate_education (candidate_id, qualification, degree, specialization, institution, university, start_year, end_year, percentage, cgpa)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     candidateId, edu.qualification || '', edu.degree || '', edu.specialization || '',
@@ -285,10 +290,10 @@ async function saveSubTables(candidateId, body) {
 
     // Experience
     if (Array.isArray(body.experience)) {
-        await db.execute('DELETE FROM candidate_experiences WHERE candidateId = ?', [candidateId]);
+        await db.execute('DELETE FROM candidate_experience WHERE candidate_id = ?', [candidateId]);
         for (const exp of body.experience) {
             await db.execute(
-                `INSERT INTO candidate_experiences (candidateId, companyName, jobTitle, employmentType, startDate, endDate, currentlyWorking, location, description)
+                `INSERT INTO candidate_experience (candidate_id, company_name, job_title, employment_type, start_date, end_date, currently_working, location, description)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     candidateId, exp.company_name || '', exp.job_title || '', exp.employment_type || 'Full Time',
@@ -301,14 +306,14 @@ async function saveSubTables(candidateId, body) {
 
     // Skills
     if (body.skills) {
-        await db.execute('DELETE FROM candidate_skills WHERE candidateId = ?', [candidateId]);
+        await db.execute('DELETE FROM candidate_skills WHERE candidate_id = ?', [candidateId]);
         const skillList = Array.isArray(body.skills) ? body.skills : String(body.skills).split(',').map(s => s.trim()).filter(Boolean);
         for (const sk of skillList) {
             const name = typeof sk === 'object' ? sk.name : sk;
             const cat = typeof sk === 'object' ? sk.category : 'Technical';
             if (name) {
                 await db.execute(
-                    'INSERT INTO candidate_skills (candidateId, skillName, skillCategory) VALUES (?, ?, ?)',
+                    'INSERT INTO candidate_skills (candidate_id, skill_name, skill_category) VALUES (?, ?, ?)',
                     [candidateId, name, cat]
                 );
             }
@@ -316,13 +321,13 @@ async function saveSubTables(candidateId, body) {
     }
 
     // Career Preferences
-    if (body.career_preferences || body.preferred_locations || body.preferred_roles) {
-        const pref = body.career_preferences || body;
-        await db.execute('DELETE FROM career_preferences WHERE candidateId = ?', [candidateId]);
+    if (body.career_preferences || body.preferred_locations || body.preferred_roles || body.preferences) {
+        const pref = body.career_preferences || body.preferences || body;
+        await db.execute('DELETE FROM career_preferences WHERE candidate_id = ?', [candidateId]);
         
         await db.execute(
             `INSERT INTO career_preferences (
-                candidateId, preferredJobTypes, preferredLocations, preferredWorkModes, minimumSalary, maximumSalary, noticePeriod, preferredRoles
+                candidate_id, preferred_job_types, preferred_locations, preferred_work_modes, minimum_salary, maximum_salary, notice_period, preferred_roles
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 candidateId,
@@ -343,24 +348,24 @@ router.get('/profile/:id', async (req, res) => {
     const candidateId = req.params.id;
     try {
         const [rows] = await db.execute(
-            'SELECT * FROM candidates WHERE candidateId = ? OR email = ? OR mobileNumber = ? LIMIT 1',
+            'SELECT * FROM candidates WHERE candidate_id = ? OR email = ? OR mobile_number = ? LIMIT 1',
             [candidateId, candidateId, candidateId]
         );
         const candidate = rows[0];
 
         if (!candidate) return res.status(404).json({ message: 'Candidate profile not found' });
 
-        const [education] = await db.execute('SELECT * FROM candidate_educations WHERE candidateId = ?', [candidate.candidateId]);
-        const [experience] = await db.execute('SELECT * FROM candidate_experiences WHERE candidateId = ?', [candidate.candidateId]);
-        const [skills] = await db.execute('SELECT * FROM candidate_skills WHERE candidateId = ?', [candidate.candidateId]);
-        const [prefRows] = await db.execute('SELECT * FROM career_preferences WHERE candidateId = ? LIMIT 1', [candidate.candidateId]);
+        const [education] = await db.execute('SELECT * FROM candidate_education WHERE candidate_id = ?', [candidate.candidate_id]);
+        const [experience] = await db.execute('SELECT * FROM candidate_experience WHERE candidate_id = ?', [candidate.candidate_id]);
+        const [skills] = await db.execute('SELECT * FROM candidate_skills WHERE candidate_id = ?', [candidate.candidate_id]);
+        const [prefRows] = await db.execute('SELECT * FROM career_preferences WHERE candidate_id = ? LIMIT 1', [candidate.candidate_id]);
         const preferences = prefRows[0];
 
         res.json({
             ...candidate,
             education: education || [],
             experience: experience || [],
-            skills: skills.map(s => s.skillName),
+            skills: skills.map(s => s.skill_name || s.skillName),
             career_preferences: preferences || {}
         });
     } catch (err) {
@@ -376,11 +381,11 @@ router.post('/save-job', verifyToken, async (req, res) => {
     if (!jobId) return res.status(400).json({ message: 'Job ID is required' });
 
     try {
-        const [rows] = await db.execute('SELECT * FROM saved_jobs WHERE candidateId = ? AND jobId = ? LIMIT 1', [cid, parseInt(jobId)]);
+        const [rows] = await db.execute('SELECT * FROM saved_jobs WHERE candidate_id = ? AND job_id = ? LIMIT 1', [cid, parseInt(jobId)]);
         const existing = rows[0];
 
         if (!existing) {
-            await db.execute('INSERT INTO saved_jobs (candidateId, jobId) VALUES (?, ?)', [cid, parseInt(jobId)]);
+            await db.execute('INSERT INTO saved_jobs (candidate_id, job_id, saved_at) VALUES (?, ?, NOW())', [cid, parseInt(jobId)]);
         }
         res.json({ message: 'Job saved successfully!' });
     } catch (err) {
@@ -395,7 +400,7 @@ router.delete('/save-job/:jobId', verifyToken, async (req, res) => {
 
     try {
         await db.execute(
-            'DELETE FROM saved_jobs WHERE (candidateId = ? OR candidateId = ?) AND jobId = ?',
+            'DELETE FROM saved_jobs WHERE (candidate_id = ? OR candidate_id = ?) AND job_id = ?',
             [candidateId, req.user.email, jobId]
         );
         res.json({ message: 'Job removed from saved jobs' });
@@ -408,11 +413,11 @@ router.delete('/save-job/:jobId', verifyToken, async (req, res) => {
 router.get('/saved-jobs/:candidateId', async (req, res) => {
     const cid = req.params.candidateId;
     try {
-        const [savedJobs] = await db.execute('SELECT * FROM saved_jobs WHERE candidateId = ? ORDER BY savedAt DESC', [cid]);
+        const [savedJobs] = await db.execute('SELECT * FROM saved_jobs WHERE candidate_id = ? ORDER BY saved_at DESC', [cid]);
         
         if (savedJobs.length === 0) return res.json([]);
         
-        const jobIds = savedJobs.map(s => s.jobId);
+        const jobIds = savedJobs.map(s => s.job_id || s.jobId);
         const placeholders = jobIds.map(() => '?').join(',');
         
         const [jobs] = await db.execute(`SELECT * FROM jobs WHERE id IN (${placeholders})`, jobIds);
@@ -429,7 +434,7 @@ router.get('/recommended-jobs/:candidateId', async (req, res) => {
     const cid = req.params.candidateId;
 
     try {
-        const [candRows] = await db.execute('SELECT * FROM candidates WHERE candidateId = ? OR email = ? LIMIT 1', [cid, cid]);
+        const [candRows] = await db.execute('SELECT * FROM candidates WHERE candidate_id = ? OR email = ? LIMIT 1', [cid, cid]);
         const candidate = candRows[0];
 
         const [activeJobs] = await db.execute('SELECT * FROM jobs WHERE status IN ("active", "open") LIMIT 50');
@@ -438,12 +443,12 @@ router.get('/recommended-jobs/:candidateId', async (req, res) => {
             return res.json(activeJobs.slice(0, 10));
         }
 
-        const [skills] = await db.execute('SELECT * FROM candidate_skills WHERE candidateId = ?', [candidate.candidateId]);
-        const [prefRows] = await db.execute('SELECT * FROM career_preferences WHERE candidateId = ? LIMIT 1', [candidate.candidateId]);
+        const [skills] = await db.execute('SELECT * FROM candidate_skills WHERE candidate_id = ?', [candidate.candidate_id]);
+        const [prefRows] = await db.execute('SELECT * FROM career_preferences WHERE candidate_id = ? LIMIT 1', [candidate.candidate_id]);
         const preferences = prefRows[0];
 
-        const candidateSkillNames = skills.map(s => (s.skillName || '').toLowerCase());
-        const prefLocations = preferences?.preferredLocations ? preferences.preferredLocations.toLowerCase() : '';
+        const candidateSkillNames = skills.map(s => (s.skill_name || s.skillName || '').toLowerCase());
+        const prefLocations = preferences?.preferred_locations ? preferences.preferred_locations.toLowerCase() : '';
 
         const scored = activeJobs.map(job => {
             let score = 50;
