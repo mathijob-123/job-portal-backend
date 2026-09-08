@@ -45,9 +45,34 @@ function mysqlToPgQuery(sql) {
             'ON CONFLICT ("key") DO UPDATE SET "value" = EXCLUDED."value"'
         );
     }
-
     // Normalize camelCase column names in SQL to match database schema
     pgSql = pgSql
+        .replace(/\bjobId\b/g, 'job_id')
+        .replace(/\bemployerId\b/g, 'employer_id')
+        .replace(/\bcompanyId\b/g, 'company_id')
+        .replace(/\blocationType\b/g, 'location_type')
+        .replace(/\bnumberOfOpenings\b/g, 'number_of_openings')
+        .replace(/\bexperienceType\b/g, 'experience_type')
+        .replace(/\bminExperience\b/g, 'minimum_experience')
+        .replace(/\bmaxExperience\b/g, 'maximum_experience')
+        .replace(/\brequiredSkills\b/g, 'required_skills')
+        .replace(/\bpreferredSkills\b/g, 'preferred_skills')
+        .replace(/\bminSalary\b/g, 'minimum_salary')
+        .replace(/\bmaxSalary\b/g, 'maximum_salary')
+        .replace(/\bsalaryType\b/g, 'salary_type')
+        .replace(/\bsalaryNegotiable\b/g, 'salary_negotiable')
+        .replace(/\bcompanyName\b/g, 'company_name')
+        .replace(/\bcompanyLogo\b/g, 'company_logo')
+        .replace(/\bcompanyEmail\b/g, 'company_email')
+        .replace(/\bcompanyPhone\b/g, 'company_phone')
+        .replace(/\bcompanyType\b/g, 'company_type')
+        .replace(/\bcompanySize\b/g, 'company_size')
+        .replace(/\byearEstablished\b/g, 'year_established')
+        .replace(/\bregistrationNumber\b/g, 'registration_number')
+        .replace(/\bgstNumber\b/g, 'gst_number')
+        .replace(/\bhrName\b/g, 'hr_name')
+        .replace(/\bjobType\b/g, 'jobtype')
+        .replace(/\bgeoAddress\b/g, 'geo_address')
         .replace(/\boriginalPrice\b/g, 'original_price')
         .replace(/\bplanType\b/g, 'plan_type')
         .replace(/\bplanName\b/g, 'plan_name')

@@ -78,11 +78,11 @@ router.post('/post', verifyToken, async (req, res) => {
     try {
         const query = `
             INSERT INTO jobs (
-                jobId, employerId, companyId, title, description, location, locationType, 
-                numberOfOpenings, experienceType, minExperience, maxExperience, education, 
-                requiredSkills, preferredSkills, salary, minSalary, maxSalary, salaryType, 
-                salaryNegotiable, companyName, companyLogo, applicationDeadline, jobType, 
-                latitude, longitude, geoAddress, status
+                job_id, employer_id, company_id, title, description, location, location_type, 
+                number_of_openings, experience_type, minimum_experience, maximum_experience, education, 
+                required_skills, preferred_skills, salary, minimum_salary, maximum_salary, salary_type, 
+                salary_negotiable, company_name, company_logo, application_deadline, jobtype, 
+                latitude, longitude, geo_address, status
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const values = [
@@ -130,7 +130,7 @@ router.put('/:id', verifyToken, async (req, res) => {
     }
 
     try {
-        const [rows] = await db.execute('SELECT * FROM jobs WHERE id = ? OR jobId = ? LIMIT 1', [idParam, idParam]);
+        const [rows] = await db.execute('SELECT * FROM jobs WHERE id = ? OR job_id = ? LIMIT 1', [idParam, idParam]);
         const job = rows[0];
 
         if (!job) return res.status(404).json({ message: 'Job not found' });
@@ -164,11 +164,11 @@ router.put('/:id', verifyToken, async (req, res) => {
 
         const query = `
             UPDATE jobs SET 
-                title=?, description=?, location=?, locationType=?, numberOfOpenings=?, 
-                experienceType=?, minExperience=?, maxExperience=?, education=?, 
-                requiredSkills=?, preferredSkills=?, salary=?, minSalary=?, maxSalary=?, 
-                salaryType=?, salaryNegotiable=?, applicationDeadline=?, jobType=?, 
-                latitude=?, longitude=?, geoAddress=?, status=?
+                title=?, description=?, location=?, location_type=?, number_of_openings=?, 
+                experience_type=?, minimum_experience=?, maximum_experience=?, education=?, 
+                required_skills=?, preferred_skills=?, salary=?, minimum_salary=?, maximum_salary=?, 
+                salary_type=?, salary_negotiable=?, application_deadline=?, jobtype=?, 
+                latitude=?, longitude=?, geo_address=?, status=?
             WHERE id = ?
         `;
         const values = [
@@ -194,7 +194,7 @@ router.put('/:id/status', verifyToken, async (req, res) => {
     const idParam = req.params.id;
     
     try {
-        const [rows] = await db.execute('SELECT * FROM jobs WHERE id = ? OR jobId = ? LIMIT 1', [idParam, idParam]);
+        const [rows] = await db.execute('SELECT * FROM jobs WHERE id = ? OR job_id = ? LIMIT 1', [idParam, idParam]);
         const job = rows[0];
 
         if (!job) return res.status(404).json({ message: 'Job not found' });
@@ -222,11 +222,11 @@ router.get('/all', async (req, res) => {
         let queryParams = [];
 
         if (city) {
-            query += ' AND (location LIKE ? OR geoAddress LIKE ?)';
+            query += ' AND (location LIKE ? OR geo_address LIKE ?)';
             queryParams.push(`%${city}%`, `%${city}%`);
         }
 
-        query += ' ORDER BY postedAt DESC';
+        query += ' ORDER BY posted_at DESC';
 
         const [jobs] = await db.execute(query, queryParams);
 

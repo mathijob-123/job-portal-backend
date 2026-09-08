@@ -513,16 +513,16 @@ router.get('/employer-quota', verifyToken, async (req, res) => {
         const [settingRows] = await db.execute('SELECT \`value\` FROM system_settings WHERE \`key\` = "free_employer_job_limit" LIMIT 1');
         const defaultFreeLimit = parseInt(settingRows.length > 0 ? settingRows[0].value : '3', 10);
 
-        const [jobCountRows] = await db.execute('SELECT COUNT(*) as count FROM jobs WHERE employerId = ? OR companyId = ?', [String(userId), String(userId)]);
-        const postedCount = jobCountRows[0].count;
+        const [jobCountRows] = await db.execute('SELECT COUNT(*) as count FROM jobs WHERE employer_id = ? OR company_id = ? OR employer_id = ?', [String(userId), String(userId), `emp_${userId}`]);
+        const postedCount = Number(jobCountRows[0]?.count) || 0;
 
         const [subRows] = await db.execute(`
-            SELECT s.*, p.name AS plan_name, p.jobLimit, p.dataRequestLimit, p.resumeDownloads, p.contactViews 
+            SELECT s.*, p.name AS plan_name, p.job_limit, p.data_request_limit, p.resume_downloads, p.contact_views 
             FROM subscriptions s 
-            LEFT JOIN subscription_plans p ON s.planId = p.id 
-            WHERE (s.userId = ? OR s.companyId = ?) AND s.status = 'active' AND s.expiryDate > NOW() 
+            LEFT JOIN subscription_plans p ON s.planid = p.id 
+            WHERE (s.userid = ? OR s.companyid = ?) AND s.status = 'active' 
             ORDER BY s.id DESC LIMIT 1
-        `, [userId, String(userId)]);
+        `, [String(userId), String(userId)]);
         
         const sub = subRows[0];
 
@@ -538,19 +538,24 @@ router.get('/employer-quota', verifyToken, async (req, res) => {
             activePlanName = sub.plan_name || 'Premium Tier';
 
             let overrides = {};
-            try { if (sub.adminOverride) overrides = JSON.parse(sub.adminOverride); } catch (e) {}
+            try { 
+                const rawOverride = sub.admin_override || sub.adminOverride;
+                if (rawOverride) overrides = typeof rawOverride === 'string' ? JSON.parse(rawOverride) : rawOverride; 
+            } catch (e) {}
 
-            const rawJobLimit = overrides.job_limit !== undefined ? overrides.job_limit : sub.jobLimit;
+            const rawJobLimit = overrides.job_limit !== undefined 
+                ? overrides.job_limit 
+                : (sub.job_limit !== undefined ? sub.job_limit : (sub.jobLimit || defaultFreeLimit));
             if (rawJobLimit === -1) allowedLimit = 999999;
-            else if (rawJobLimit > 0) allowedLimit = rawJobLimit;
+            else if (rawJobLimit > 0) allowedLimit = Number(rawJobLimit);
 
-            dataRequestLimit = overrides.data_request_limit !== undefined ? overrides.data_request_limit : (sub.dataRequestLimit || 0);
-            resumeDownloadLimit = overrides.resume_downloads !== undefined ? overrides.resume_downloads : (sub.resumeDownloads || 0);
-            contactViewLimit = overrides.contact_views !== undefined ? overrides.contact_views : (sub.contactViews || 0);
+            dataRequestLimit = overrides.data_request_limit !== undefined ? overrides.data_request_limit : (sub.data_request_limit || sub.dataRequestLimit || 0);
+            resumeDownloadLimit = overrides.resume_downloads !== undefined ? overrides.resume_downloads : (sub.resume_downloads || sub.resumeDownloads || 0);
+            contactViewLimit = overrides.contact_views !== undefined ? overrides.contact_views : (sub.contact_views || sub.contactViews || 0);
         } else {
-            const [userRows] = await db.execute('SELECT isPremium FROM users WHERE id = ? LIMIT 1', [userId]);
+            const [userRows] = await db.execute('SELECT is_premium, ispremium FROM users WHERE id = ? LIMIT 1', [userId]).catch(() => [[]]);
             const userRow = userRows[0];
-            if (userRow && userRow.isPremium === 1) {
+            if (userRow && (userRow.is_premium === 1 || userRow.ispremium === 1 || userRow.is_premium === true || userRow.ispremium === true)) {
                 isPremium = true;
                 allowedLimit = 50;
                 activePlanName = 'Growth Pack (50 Jobs)';

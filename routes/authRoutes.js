@@ -217,7 +217,7 @@ router.post('/verify-otp', async (req, res) => {
     }
 });
 
-// 3. Employer Login Endpoint (Email + Password)
+// 3. Employer Login Endpoint (Recruiter Email + Password)
 router.post('/employer/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
@@ -225,15 +225,29 @@ router.post('/employer/login', async (req, res) => {
     }
 
     try {
-        const [userRows] = await db.execute('SELECT * FROM users WHERE email = ? AND role = "company" LIMIT 1', [email]);
-        const user = userRows[0];
+        const cleanEmail = email.trim();
+        // Look up by Recruiter Email in users table
+        let [userRows] = await db.execute('SELECT * FROM users WHERE LOWER(email) = LOWER(?) AND role = "company" LIMIT 1', [cleanEmail]);
+        let user = userRows[0];
         
-        if (!user) return res.status(401).json({ message: 'No employer account found with this email' });
+        // If not found, check if entered email matches companyEmail in companies table
+        if (!user) {
+            const [companyRows] = await db.execute('SELECT * FROM companies WHERE LOWER(companyEmail) = LOWER(?) LIMIT 1', [cleanEmail]);
+            if (companyRows && companyRows.length > 0) {
+                const comp = companyRows[0];
+                const [matchedUsers] = await db.execute('SELECT * FROM users WHERE (LOWER(email) = LOWER(?) OR phone = ?) AND role = "company" LIMIT 1', [comp.companyEmail || '', comp.companyPhone || '']);
+                if (matchedUsers && matchedUsers.length > 0) {
+                    user = matchedUsers[0];
+                }
+            }
+        }
+        
+        if (!user) return res.status(401).json({ message: 'No employer/recruiter account found with this email' });
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(401).json({ message: 'Incorrect email or password' });
 
-        const [companyRows] = await db.execute('SELECT * FROM companies WHERE companyEmail = ? LIMIT 1', [email]);
+        const [companyRows] = await db.execute('SELECT * FROM companies WHERE companyEmail = ? OR employerId = ? LIMIT 1', [user.email, `emp_${user.id}`]);
         const company = companyRows[0];
         
         const jwtSecret = process.env.JWT_SECRET || 'secret_key';
